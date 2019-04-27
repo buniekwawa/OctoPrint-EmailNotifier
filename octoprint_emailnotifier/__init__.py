@@ -25,23 +25,24 @@ class EmailNotifierPlugin(octoprint.plugin.EventHandlerPlugin,
 			# Elapsed times are formatted as H:M:S instead of seconds.
 			
 			notifications={
-				"FileSelected": dict(
+				"PrintStarted": dict(
 					enabled=True,
-					title="Selected {filename}",
-					body="{file} selected for printing.",
+					title="Print started {name}",
+					body="{name} print started",
 					snapshot=False
 				),
 				"PrintDone": dict(
 					enabled=True,
-					title="Print complete: {file}",
-					body="{file} done in {time}.",
+					title="Print complete: {name}",
+					body="{name} done in {time}.",
 					snapshot=True
 				),
-				"MovieDone": dict(
+				"Progress": dict(
 					enabled=True,
-					title="Timelapse rendered: {movie_basename}",
-					body="Timelapse of printing {gcode} saved as {movie}.",
-					snapshot=False
+					title="Printing progress: {name}",
+					body="Printing is at {progress}%",
+					snapshot=True,
+					step=10
 				)
 			}
 		)
@@ -98,9 +99,59 @@ class EmailNotifierPlugin(octoprint.plugin.EventHandlerPlugin,
 		title = f.format(notification.get('title'), **payload)
 		content = [f.format(notification.get('body'), **payload)]
 
+		self.send_message(content, title, notification.get('snapshot', False))		
+
+	def on_print_progress(self,location,path,progress):
+		notification = self._settings.get(['notifications']).get("Progress")
+
+		if notification is None:
+			return
+		
+		# Is this notification enabled?
+		if not notification.get('enabled', False):
+			return
+
+		if int(notification.get('step')) == 0 \
+			or int(progress) == 0 \
+			or int(progress)%int(notification.get('step')) != 0 \
+			or int(progress) == 100 :
+			return
+
+		tmpDataFromPrinter = self._printer.get_current_data()
+
+		payload['progress']=progress
+		
+		if tmpDataFromPrinter["job"] is not None and tmpDataFromPrinter["job"]["file"] is not None:
+			payload['name']=tmpDataFromPrinter["job"]["file"]["name"]
+
+		f = ChillFormatter()
+		title = f.format(notification.get('title'), **payload)
+		content = [f.format(notification.get('body'), **payload)]
+
+		self.send_message(content, title, notification.get('snapshot', False))
+
+	def get_update_information(self):
+		return dict(
+			emailnotifier=dict(
+				displayName="EmailNotifier Plugin",
+				displayVersion=self._plugin_version,
+
+				# version check: github repository
+				type="github_release",
+				user="anoved",
+				repo="OctoPrint-EmailNotifier",
+				current=self._plugin_version,
+
+				# update method: pip
+				pip="https://github.com/anoved/OctoPrint-EmailNotifier/archive/{target_version}.zip",
+				dependency_links=False
+			)
+		)
+
+	def send_message(content, title, includeSnapshot):
 		# Should this notification include a webcam snapshot?
 		# If so, attempt to attach it to the message content.
-		if notification.get('snapshot', False):
+		if includeSnapshot:
 			snapshot_url = self._settings.globalGet(["webcam", "snapshot"])
 			if snapshot_url:
 				try:
@@ -120,25 +171,7 @@ class EmailNotifierPlugin(octoprint.plugin.EventHandlerPlugin,
 			self._logger.exception("Email notification error: %s" % (str(e)))
 		else:
 			# report notification was sent
-			self._logger.info("%s notification sent to %s" % (event, self._settings.get(['recipient_address'])))		
-
-	def get_update_information(self):
-		return dict(
-			emailnotifier=dict(
-				displayName="EmailNotifier Plugin",
-				displayVersion=self._plugin_version,
-
-				# version check: github repository
-				type="github_release",
-				user="anoved",
-				repo="OctoPrint-EmailNotifier",
-				current=self._plugin_version,
-
-				# update method: pip
-				pip="https://github.com/anoved/OctoPrint-EmailNotifier/archive/{target_version}.zip",
-				dependency_links=False
-			)
-		)
+			self._logger.info("%s notification sent to %s" % (event, self._settings.get(['recipient_address'])))
 
 # Hack to make .format() chill out about unknown keys. Just let 'em be as-is.
 class ChillFormatter(string.Formatter):
