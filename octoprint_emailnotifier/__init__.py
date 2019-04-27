@@ -148,7 +148,7 @@ class EmailNotifierPlugin(octoprint.plugin.EventHandlerPlugin,
 			)
 		)
 
-	def send_message(content, title, includeSnapshot):
+	def send_message(self,content, title, includeSnapshot):
 		# Should this notification include a webcam snapshot?
 		# If so, attempt to attach it to the message content.
 		if includeSnapshot:
